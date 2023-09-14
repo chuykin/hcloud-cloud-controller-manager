@@ -4,8 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	cloudprovider "k8s.io/cloud-provider"
 	"k8s.io/klog/v2"
 
@@ -90,6 +93,57 @@ func (l *loadBalancers) GetLoadBalancerName(_ context.Context, _ string, service
 	return cloudprovider.DefaultLoadBalancerName(service)
 }
 
+// MustGetKey creates a key from Kubernetes resource in the format <namespace>/<name>
+func MustGetKey(obj interface{}) string {
+	if obj == nil {
+		return ""
+	}
+
+	o, err := MustGetObject(obj)
+	if err != nil {
+		return ""
+	}
+	return fmt.Sprintf("%s/%s", o.GetNamespace(), o.GetName())
+}
+
+// MustGetObject casts the object into a Kubernetes `metav1.Object`
+func MustGetObject(obj interface{}) (metav1.Object, error) {
+	switch o := obj.(type) {
+	case metav1.ObjectMetaAccessor:
+		return o.GetObjectMeta(), nil
+	case metav1.Object:
+		return o, nil
+	default:
+		return nil, fmt.Errorf("unknown type: %v", reflect.TypeOf(obj))
+	}
+}
+
+func (l *loadBalancers) nodesForService(svc *corev1.Service, nodes []*corev1.Node) []*corev1.Node {
+	objectMeta, err := MustGetObject(svc)
+	if err != nil {
+		return nodes
+	}
+	svcAnnotations := objectMeta.GetAnnotations()
+
+	if nodeSelectorString, ok := svcAnnotations[string(annotation.LBSvcTargetNodesMatching)]; ok {
+		nodeSelector, err := labels.Parse(nodeSelectorString)
+		if err != nil {
+			return nodes
+		}
+
+		var filteredNodes []*corev1.Node
+		for _, n := range nodes {
+			if nodeSelector.Matches(labels.Set(n.Labels)) {
+				filteredNodes = append(filteredNodes, n)
+			}
+		}
+
+		return filteredNodes
+	} else {
+		return nodes
+	}
+}
+
 func (l *loadBalancers) EnsureLoadBalancer(
 	ctx context.Context, clusterName string, svc *corev1.Service, nodes []*corev1.Node,
 ) (*corev1.LoadBalancerStatus, error) {
@@ -102,6 +156,7 @@ func (l *loadBalancers) EnsureLoadBalancer(
 		err    error
 	)
 
+	nodes = l.nodesForService(svc, nodes)
 	nodeNames := make([]string, len(nodes))
 	for i, n := range nodes {
 		nodeNames[i] = n.Name

@@ -187,6 +187,10 @@ const (
 	// performing the health check.
 	LBSvcHealthCheckHTTPPath Name = "load-balancer.hetzner.cloud/health-check-http-path"
 
+	// LBSvcTargetNodesMatching is a comma separated list of label matchers
+	// to get a subset of nodes in the cluster.
+	LBSvcTargetNodesMatching Name = "load-balancer.hetzner.cloud/target-nodes-matching"
+
 	// LBSvcHealthCheckHTTPValidateCertificate specifies whether the health
 	// check should validate the SSL certificate that comes from the target
 	// nodes.
